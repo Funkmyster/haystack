@@ -8,7 +8,7 @@ try:
     from elasticsearch import Elasticsearch, RequestsHttpConnection, Connection, Urllib3HttpConnection
     from elasticsearch.helpers import bulk, scan
     from elasticsearch.exceptions import RequestError
-except (ImportError, ModuleNotFoundError) as ie:
+except ImportError as ie:
     from haystack.utils.import_utils import _optional_component_not_installed
 
     _optional_component_not_installed(__name__, "elasticsearch", ie)
@@ -266,7 +266,7 @@ class ElasticsearchDocumentStore(SearchEngineDocumentStore):
         try:
             # ping uses a HEAD request on the root URI. In some cases, the user might not have permissions for that,
             # resulting in a HTTP Forbidden 403 response.
-            if username in ["", "elastic"]:
+            if username in {"", "elastic"}:
                 status = client.ping()
                 if not status:
                     raise ConnectionError(
@@ -418,13 +418,15 @@ class ElasticsearchDocumentStore(SearchEngineDocumentStore):
                 raise self._RequestError(e.status_code, error_message, e.info)
             raise e
 
-        documents = [
+        return [
             self._convert_es_hit_to_document(
-                hit, adapt_score_for_embedding=True, return_embedding=return_embedding, scale_score=scale_score
+                hit,
+                adapt_score_for_embedding=True,
+                return_embedding=return_embedding,
+                scale_score=scale_score,
             )
             for hit in result
         ]
-        return documents
 
     def _create_document_index(self, index_name: str, headers: Optional[Dict[str, str]] = None):
         """
@@ -565,7 +567,7 @@ class ElasticsearchDocumentStore(SearchEngineDocumentStore):
         if self.skip_missing_embeddings:
             script_score_query = {"bool": {"filter": {"bool": {"must": [{"exists": {"field": self.embedding_field}}]}}}}
 
-        query = {
+        return {
             "script_score": {
                 "query": script_score_query,
                 "script": {
@@ -575,7 +577,6 @@ class ElasticsearchDocumentStore(SearchEngineDocumentStore):
                 },
             }
         }
-        return query
 
     def _get_raw_similarity_score(self, score):
         return score - 1000

@@ -28,7 +28,11 @@ class JoinAnswers(JoinNode):
             None as a score to each.
         """
 
-        assert join_mode in ["concatenate", "merge"], f"JoinAnswers node does not support '{join_mode}' join_mode."
+        assert join_mode in {
+            "concatenate",
+            "merge",
+        }, f"JoinAnswers node does not support '{join_mode}' join_mode."
+
         assert not (
             weights is not None and join_mode == "concatenate"
         ), "Weights are not compatible with 'concatenate' join_mode"
@@ -66,10 +70,7 @@ class JoinAnswers(JoinNode):
         incoming_edges = [inp["answers"] for inp in inputs]
         # At each idx, we find predicted answers for the same query from different Readers
         for idx in range(len(incoming_edges[0])):
-            cur_ans_to_join = []
-            # Aggregate predicted answer from each Reader
-            for edge in incoming_edges:
-                cur_ans_to_join.append({"answers": edge[idx]})
+            cur_ans_to_join = [{"answers": edge[idx]} for edge in incoming_edges]
             cur, _ = self.run(inputs=cur_ans_to_join, top_k_join=top_k_join)
             output_ans.append(cur["answers"])
 
@@ -78,7 +79,7 @@ class JoinAnswers(JoinNode):
         return output, "output_1"
 
     def _merge_answers(self, reader_results: List[List[Answer]]) -> List[Answer]:
-        weights = self.weights if self.weights else [1 / len(reader_results)] * len(reader_results)
+        weights = self.weights or [1 / len(reader_results)] * len(reader_results)
 
         for result, weight in zip(reader_results, weights):
             for answer in result:

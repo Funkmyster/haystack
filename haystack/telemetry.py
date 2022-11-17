@@ -217,10 +217,10 @@ def _get_or_create_user_id() -> Optional[str]:
     if user_id is None:
         # if user_id is not set, read it from config file
         _read_telemetry_config()
-        if user_id is None and is_telemetry_enabled():
-            # if user_id cannot be read from config file, create new user_id and write it to config file
-            user_id = str(uuid.uuid4())
-            _write_telemetry_config()
+    if user_id is None and is_telemetry_enabled():
+        # if user_id cannot be read from config file, create new user_id and write it to config file
+        user_id = str(uuid.uuid4())
+        _write_telemetry_config()
     return user_id
 
 
@@ -250,8 +250,9 @@ def _write_telemetry_config():
         # show a log message if telemetry config is written for the first time
         if not CONFIG_PATH.is_file():
             logger.info(
-                f"Haystack sends anonymous usage data to understand the actual usage and steer dev efforts towards features that are most meaningful to users. You can opt-out at anytime by calling disable_telemetry() or by manually setting the environment variable HAYSTACK_TELEMETRY_ENABLED as described for different operating systems on the documentation page. More information at https://haystack.deepset.ai/guides/telemetry"
+                "Haystack sends anonymous usage data to understand the actual usage and steer dev efforts towards features that are most meaningful to users. You can opt-out at anytime by calling disable_telemetry() or by manually setting the environment variable HAYSTACK_TELEMETRY_ENABLED as described for different operating systems on the documentation page. More information at https://haystack.deepset.ai/guides/telemetry"
             )
+
             CONFIG_PATH.parents[0].mkdir(parents=True, exist_ok=True)
         user_id = _get_or_create_user_id()
         config = {"user_id": user_id}
@@ -308,11 +309,12 @@ class NonPrivateParameters:
         tracked_params = {k: param_dicts[k] for k in cls.param_names if k in param_dicts}
 
         # if model_name_or_path is a local file path, we reduce it to the model name
-        if "model_name_or_path" in tracked_params:
-            if (
+        if "model_name_or_path" in tracked_params and (
+            (
                 Path(tracked_params["model_name_or_path"]).is_file()
                 or tracked_params["model_name_or_path"].count(os.path.sep) > 1
-            ):
-                # if model_name_or_path points to an existing file or contains more than one / it is a path
-                tracked_params["model_name_or_path"] = Path(tracked_params["model_name_or_path"]).name
+            )
+        ):
+            # if model_name_or_path points to an existing file or contains more than one / it is a path
+            tracked_params["model_name_or_path"] = Path(tracked_params["model_name_or_path"]).name
         return tracked_params

@@ -103,7 +103,7 @@ class Trainer:
         """
         self.model = model
         self.data_silo = data_silo
-        self.epochs = int(epochs)
+        self.epochs = epochs
         self.optimizer = optimizer
         self.evaluate_every = evaluate_every
         self.eval_report = eval_report
@@ -129,10 +129,7 @@ class Trainer:
                 "https://github.com/NVIDIA/apex"
             )
         self.checkpoint_on_sigterm = checkpoint_on_sigterm
-        if checkpoint_on_sigterm:
-            self.sigterm_handler = GracefulKiller()  # type: Optional[GracefulKiller]
-        else:
-            self.sigterm_handler = None
+        self.sigterm_handler = GracefulKiller() if checkpoint_on_sigterm else None
         self.checkpoint_root_dir = checkpoint_root_dir
         self.checkpoints_to_keep = checkpoints_to_keep
         self.checkpoint_every = checkpoint_every
@@ -193,19 +190,19 @@ class Trainer:
                 if resume_from_step and step <= resume_from_step:
                     if step % 10000 == 0:
                         logger.info("Skipping %s out of %s steps ...", step, resume_from_step)
-                    if resume_from_step == step:
-                        logger.info("Finished skipping %s steps ...", resume_from_step)
-                        resume_from_step = None
-                    else:
+                    if resume_from_step != step:
                         continue
 
+                    logger.info("Finished skipping %s steps ...", resume_from_step)
+                    resume_from_step = None
                 progress_bar.set_description(f"Train epoch {epoch}/{self.epochs-1} (Cur. train loss: {loss:.4f})")
 
                 # Only for distributed training: we need to ensure that all ranks still have a batch left for training
-                if self.local_rank != -1:
-                    if not self._all_ranks_have_data(has_data=1, step=step):
-                        early_break = True
-                        break
+                if self.local_rank != -1 and not self._all_ranks_have_data(
+                    has_data=1, step=step
+                ):
+                    early_break = True
+                    break
 
                 # Move batch of samples to device
                 batch = {key: batch[key].to(self.device) for key in batch}
@@ -233,17 +230,17 @@ class Trainer:
                             do_stopping, save_model, eval_value = self.early_stopping.check_stopping(result)
                             if save_model:
                                 logger.info(
-                                    "Saving current best model to {}, eval={}".format(
-                                        self.early_stopping.save_dir, eval_value
-                                    )
+                                    f"Saving current best model to {self.early_stopping.save_dir}, eval={eval_value}"
                                 )
+
                                 self.model.save(self.early_stopping.save_dir)
                                 self.data_silo.processor.save(self.early_stopping.save_dir)
                             if do_stopping:
                                 # log the stopping
                                 logger.info(
-                                    "STOPPING EARLY AT EPOCH {}, STEP {}, EVALUATION {}".format(epoch, step, evalnr)
+                                    f"STOPPING EARLY AT EPOCH {epoch}, STEP {step}, EVALUATION {evalnr}"
                                 )
+
                 if do_stopping:
                     break
 
@@ -275,7 +272,7 @@ class Trainer:
 
         # With early stopping we want to restore the best model
         if self.early_stopping and self.early_stopping.save_dir:
-            logger.info("Restoring best model so far from {}".format(self.early_stopping.save_dir))
+            logger.info(f"Restoring best model so far from {self.early_stopping.save_dir}")
             self.model = AdaptiveModel.load(self.early_stopping.save_dir, self.device)
             self.model.connect_heads_with_processor(self.data_silo.processor.tasks, require_labels=True)
 
@@ -321,10 +318,9 @@ class Trainer:
     def backward_propagate(self, loss: torch.Tensor, step: int):
         loss = self.adjust_loss(loss)
         if self.global_step % self.log_loss_every == 0 and self.local_rank in [-1, 0]:
-            if self.local_rank in [-1, 0]:
-                tracker.track_metrics({"Train_loss_total": float(loss.detach().cpu().numpy())}, step=self.global_step)
-                if self.log_learning_rate:
-                    tracker.track_metrics({"learning_rate": self.lr_schedule.get_last_lr()[0]}, step=self.global_step)
+            tracker.track_metrics({"Train_loss_total": float(loss.detach().cpu().numpy())}, step=self.global_step)
+            if self.log_learning_rate:
+                tracker.track_metrics({"learning_rate": self.lr_schedule.get_last_lr()[0]}, step=self.global_step)
         if self.use_amp:
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
@@ -374,16 +370,20 @@ class Trainer:
                defaults to "latest", using the checkpoint with the highest train steps.
         """
         checkpoint_to_load = None
-        if checkpoint_root_dir:
-            if checkpoint_root_dir.exists():
-                if resume_from_checkpoint == "latest":
-                    saved_checkpoints = cls._get_checkpoints(checkpoint_root_dir)
-                    if saved_checkpoints:
-                        checkpoint_to_load = saved_checkpoints[0]  # latest checkpoint
-                    else:
-                        checkpoint_to_load = None
-                else:
-                    checkpoint_to_load = checkpoint_root_dir / resume_from_checkpoint
+        if checkpoint_root_dir and checkpoint_root_dir.exists():
+            if resume_from_checkpoint == "latest":
+                checkpoint_to_load = (
+                    saved_checkpoints[0]
+                    if (
+                        saved_checkpoints := cls._get_checkpoints(
+                            checkpoint_root_dir
+                        )
+                    )
+                    else None
+                )
+
+            else:
+                checkpoint_to_load = checkpoint_root_dir / resume_from_checkpoint
 
         if checkpoint_to_load:
             # TODO load empty model class from config instead of passing here?
@@ -470,9 +470,7 @@ class Trainer:
         sorted_checkpoints_with_epoch_and_step = sorted(
             checkpoints_with_epoch_and_step, key=lambda tup: (tup[1], tup[2]), reverse=True  # sort by epoch and step
         )
-        sorted_checkpoints = [tup[0] for tup in sorted_checkpoints_with_epoch_and_step]
-
-        return sorted_checkpoints
+        return [tup[0] for tup in sorted_checkpoints_with_epoch_and_step]
 
     def _save(self):
         """
@@ -527,7 +525,7 @@ class Trainer:
         """
         Serializable state dictionary of a Trainer object
         """
-        state_dict = {
+        return {
             "evaluate_every": self.evaluate_every,
             "n_gpu": self.n_gpu,
             "grad_acc_steps": self.grad_acc_steps,
@@ -547,8 +545,6 @@ class Trainer:
             "disable_tqdm": self.disable_tqdm,
         }
 
-        return state_dict
-
     def _all_ranks_have_data(self, has_data: bool, step: Optional[int] = None):
         """
         Verify in distributed training if all ranks still have data left. We send a "1" from here if this rank has data
@@ -566,15 +562,14 @@ class Trainer:
 
         torch.distributed.all_reduce(ranks_with_data, op=torch.distributed.ReduceOp.SUM)
 
-        if ranks_with_data < torch.distributed.get_world_size():
-            if step is not None:
-                logger.info(
-                    f"Stopping epoch {self.from_epoch} at step {step} for rank {self.local_rank} since at least one other rank "
-                    f"(~ one GPU) in distributed training doesn't have any more batches... "
-                )
-            return False
-        else:
+        if ranks_with_data >= torch.distributed.get_world_size():
             return True
+        if step is not None:
+            logger.info(
+                f"Stopping epoch {self.from_epoch} at step {step} for rank {self.local_rank} since at least one other rank "
+                f"(~ one GPU) in distributed training doesn't have any more batches... "
+            )
+        return False
 
 
 class DistillationTrainer(Trainer):

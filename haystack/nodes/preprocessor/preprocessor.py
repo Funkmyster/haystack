@@ -207,7 +207,7 @@ class PreProcessor(BasePreProcessor):
             remove_substrings=remove_substrings,
             id_hash_keys=id_hash_keys,
         )
-        split_documents = self.split(
+        return self.split(
             document=cleaned_document,
             split_by=split_by,
             split_length=split_length,
@@ -215,7 +215,6 @@ class PreProcessor(BasePreProcessor):
             split_respect_sentence_boundary=split_respect_sentence_boundary,
             id_hash_keys=id_hash_keys,
         )
-        return split_documents
 
     def _process_batch(
         self, documents: List[Union[dict, Document]], id_hash_keys: Optional[List[str]] = None, **kwargs
@@ -328,8 +327,7 @@ class PreProcessor(BasePreProcessor):
                 elements=elements, split_length=split_length, split_overlap=split_overlap, split_at=split_at
             )
 
-        # create new document dicts for each text split
-        documents = self._create_docs_from_splits(
+        return self._create_docs_from_splits(
             text_splits=text_splits,
             splits_pages=splits_pages,
             splits_start_idxs=splits_start_idxs,
@@ -337,8 +335,6 @@ class PreProcessor(BasePreProcessor):
             meta=document.meta or {},
             id_hash_keys=id_hash_keys,
         )
-
-        return documents
 
     @staticmethod
     def _clean_whitespace(text: str, headlines: List[Dict]) -> Tuple[str, List[Dict]]:
@@ -431,9 +427,8 @@ class PreProcessor(BasePreProcessor):
             word_count_sen = len(sen.split())
 
             if word_count_sen > split_length:
-                long_sentence_message = (
-                    f"We found one or more sentences whose word count is higher than the split length."
-                )
+                long_sentence_message = "We found one or more sentences whose word count is higher than the split length."
+
                 if long_sentence_message not in self.print_log:
                     self.print_log.add(long_sentence_message)
                     logger.warning(long_sentence_message)
@@ -451,9 +446,9 @@ class PreProcessor(BasePreProcessor):
                     word_count_overlap = 0
                     current_slice_copy = deepcopy(current_slice)
                     for idx, s in reversed(list(enumerate(current_slice))):
-                        sen_len = len(s.split())
                         if word_count_overlap < split_overlap:
                             overlap.append(s)
+                            sen_len = len(s.split())
                             word_count_overlap += sen_len
                             current_slice_copy.pop(idx)
                         else:
@@ -489,7 +484,7 @@ class PreProcessor(BasePreProcessor):
         text_splits = []
         for sl in list_splits:
             txt = "".join(sl)
-            if len(txt) > 0:
+            if txt != "":
                 text_splits.append(txt)
 
         return text_splits, splits_pages, splits_start_idxs
@@ -525,7 +520,7 @@ class PreProcessor(BasePreProcessor):
         for seg in segments:
             current_units = [unit for unit in seg if unit is not None]
             txt = split_at.join(current_units)
-            if len(txt) > 0:
+            if txt != "":
                 text_splits.append(txt)
                 splits_pages.append(cur_page)
                 splits_start_idxs.append(cur_start_idx)
@@ -638,8 +633,7 @@ class PreProcessor(BasePreProcessor):
         if found_footer:
             pages = [page.replace(found_footer, "") for page in pages]
         logger.debug("Removed header '%s' and footer '%s' in document", found_header, found_footer)
-        text = "\f".join(pages)
-        return text
+        return "\f".join(pages)
 
     def _ngram(self, seq: str, n: int) -> Generator[str, None, None]:
         """
@@ -655,17 +649,15 @@ class PreProcessor(BasePreProcessor):
         seq = seq.replace("\t", " \t")
 
         words = seq.split(" ")
-        ngrams = (
-            " ".join(words[i : i + n]).replace(" \n", "\n").replace(" \t", "\t") for i in range(0, len(words) - n + 1)
+        return (
+            " ".join(words[i : i + n]).replace(" \n", "\n").replace(" \t", "\t")
+            for i in range(len(words) - n + 1)
         )
-
-        return ngrams
 
     def _allngram(self, seq: str, min_ngram: int, max_ngram: int) -> Set[str]:
         lengths = range(min_ngram, max_ngram) if max_ngram else range(min_ngram, len(seq))
         ngrams = map(partial(self._ngram, seq), lengths)
-        res = set(chain.from_iterable(ngrams))
-        return res
+        return set(chain.from_iterable(ngrams))
 
     def _find_longest_common_ngram(
         self, sequences: List[str], max_ngram: int = 30, min_ngram: int = 3
@@ -722,8 +714,7 @@ class PreProcessor(BasePreProcessor):
         )
         sentence_tokenizer._lang_vars._re_period_context = re_period_context
 
-        sentences = sentence_tokenizer.tokenize(text)
-        return sentences
+        return sentence_tokenizer.tokenize(text)
 
     def _load_sentence_tokenizer(self, language_name: Optional[str]) -> nltk.tokenize.punkt.PunktSentenceTokenizer:
 
@@ -734,12 +725,17 @@ class PreProcessor(BasePreProcessor):
                 sentence_tokenizer = nltk.data.load(f"file:{str(tokenizer_model_path)}", format="pickle")
             except (LookupError, UnpicklingError, ValueError) as e:
                 if isinstance(e, LookupError):
-                    logger.exception(f"PreProcessor couldn't load sentence tokenizer from %s", tokenizer_model_path)
-                else:
                     logger.exception(
-                        f"PreProcessor couldn't determine model format of sentence tokenizer at %s",
+                        "PreProcessor couldn't load sentence tokenizer from %s",
                         tokenizer_model_path,
                     )
+
+                else:
+                    logger.exception(
+                        "PreProcessor couldn't determine model format of sentence tokenizer at %s",
+                        tokenizer_model_path,
+                    )
+
 
                 # NLTK failed to load custom SentenceTokenizer, fallback to the default model or to English
                 if language_name is not None:
@@ -753,9 +749,8 @@ class PreProcessor(BasePreProcessor):
                         f"PreProcessor couldn't find default or custom sentence tokenizer model for {self.language}. "
                         f"Using English instead."
                     )
-                    sentence_tokenizer = nltk.data.load(f"tokenizers/punkt/english.pickle")
+                    sentence_tokenizer = nltk.data.load("tokenizers/punkt/english.pickle")
 
-        # Use a default NLTK model
         elif language_name is not None:
             sentence_tokenizer = nltk.data.load(f"tokenizers/punkt/{language_name}.pickle")
         else:
@@ -763,7 +758,7 @@ class PreProcessor(BasePreProcessor):
                 f"PreProcessor couldn't find the default sentence tokenizer model for {self.language}. "
                 f" Using English instead. You may train your own model and use the 'tokenizer_model_folder' parameter."
             )
-            sentence_tokenizer = nltk.data.load(f"tokenizers/punkt/english.pickle")
+            sentence_tokenizer = nltk.data.load("tokenizers/punkt/english.pickle")
 
         return sentence_tokenizer
 
@@ -779,11 +774,12 @@ class PreProcessor(BasePreProcessor):
             # Remove already used page break
             num_page_breaks -= 1
         # Increment page counter if new split starts with a page break
-        if split_overlap and overlapping_sents:
-            if overlapping_sents[0].startswith("\f"):
-                num_page_breaks += 1
-        else:
-            if current_sent.startswith("\f"):
-                num_page_breaks += 1
-
+        if (
+            split_overlap
+            and overlapping_sents
+            and overlapping_sents[0].startswith("\f")
+            or (not split_overlap or not overlapping_sents)
+            and current_sent.startswith("\f")
+        ):
+            num_page_breaks += 1
         return num_page_breaks

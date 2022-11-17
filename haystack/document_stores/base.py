@@ -280,15 +280,13 @@ class BaseDocumentStore(BaseComponent):
         """
         all_labels = self.get_all_labels(index=index, filters=filters, headers=headers)
 
-        aggregated_labels = aggregate_labels(
+        return aggregate_labels(
             labels=all_labels,
             add_closed_domain_filter=not open_domain,
             add_meta_filters=aggregate_by_meta,
             drop_negative_labels=drop_negative_labels,
             drop_no_answers=drop_no_answers,
         )
-
-        return aggregated_labels
 
     @abstractmethod
     def get_document_by_id(
@@ -338,10 +336,7 @@ class BaseDocumentStore(BaseComponent):
                 vec /= norm
 
     def scale_to_unit_interval(self, score: float, similarity: Optional[str]) -> float:
-        if similarity == "cosine":
-            return (score + 1) / 2
-        else:
-            return float(expit(score / 100))
+        return (score + 1) / 2 if similarity == "cosine" else float(expit(score / 100))
 
     @abstractmethod
     def query_by_embedding(
@@ -437,7 +432,7 @@ class BaseDocumentStore(BaseComponent):
                 self.write_documents(docs, index=doc_index, headers=headers)
                 self.write_labels(labels, index=label_index, headers=headers)
             else:
-                jsonl_filename = (file_path.parent / (file_path.stem + ".jsonl")).as_posix()
+                jsonl_filename = (file_path.parent / f"{file_path.stem}.jsonl").as_posix()
                 logger.info(
                     f"Adding evaluation data batch-wise is not compatible with json-formatted SQuAD files. "
                     f"Converting json to jsonl to: {jsonl_filename}"
@@ -548,14 +543,13 @@ class BaseDocumentStore(BaseComponent):
         docs = self.get_all_documents(index)
 
         l = [len(d.content) for d in docs]
-        stats = {
+        return {
             "count": len(docs),
             "chars_mean": np.mean(l),
             "chars_max": max(l),
             "chars_min": min(l),
             "chars_median": np.median(l),
         }
-        return stats
 
     @abstractmethod
     def get_documents_by_id(
@@ -623,7 +617,7 @@ class BaseDocumentStore(BaseComponent):
             documents_found = self.get_documents_by_id(ids=[doc.id for doc in documents], index=index, headers=headers)
             ids_exist_in_db: List[str] = [doc.id for doc in documents_found]
 
-            if len(ids_exist_in_db) > 0 and duplicate_documents == "fail":
+            if ids_exist_in_db and duplicate_documents == "fail":
                 raise DuplicateDocumentError(
                     f"Document with ids '{', '.join(ids_exist_in_db)} already exists" f" in index = '{index}'."
                 )
@@ -644,11 +638,12 @@ class BaseDocumentStore(BaseComponent):
         """
         index = index or self.label_index
         new_ids: List[str] = [label.id for label in labels]
-        duplicate_ids: List[str] = []
+        duplicate_ids: List[str] = [
+            label_id
+            for label_id, count in collections.Counter(new_ids).items()
+            if count > 1
+        ]
 
-        for label_id, count in collections.Counter(new_ids).items():
-            if count > 1:
-                duplicate_ids.append(label_id)
 
         for label in self.get_all_labels(index=index, headers=headers):
             if label.id in new_ids:
@@ -887,7 +882,5 @@ def get_batches_from_generator(iterable, n):
     Batch elements of an iterable into fixed-length chunks or blocks.
     """
     it = iter(iterable)
-    x = tuple(islice(it, n))
-    while x:
+    while x := tuple(islice(it, n)):
         yield x
-        x = tuple(islice(it, n))

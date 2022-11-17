@@ -28,7 +28,7 @@ def prepare_hosts(host, port):
     """
     if isinstance(host, list):
         if isinstance(port, list):
-            if not len(port) == len(host):
+            if len(port) != len(host):
                 raise ValueError("Length of list `host` must match length of list `port`")
             hosts = [{"host": h, "port": p} for h, p in zip(host, port)]
         else:
@@ -93,13 +93,13 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
         self.label_index: str = label_index
         self.scroll = scroll
         self.skip_missing_embeddings: bool = skip_missing_embeddings
-        if similarity in ["cosine", "dot_product", "l2"]:
+        if similarity in {"cosine", "dot_product", "l2"}:
             self.similarity: str = similarity
         else:
             raise DocumentStoreError(
                 f"Invalid value {similarity} for similarity, choose between 'cosine', 'l2' and 'dot_product'"
             )
-        if index_type in ["flat", "hnsw"]:
+        if index_type in {"flat", "hnsw"}:
             self.index_type = index_type
         else:
             raise Exception("Invalid value for index_type in constructor. Choose between 'flat' and 'hnsw'")
@@ -224,8 +224,9 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
     ) -> Optional[Document]:
         """Fetch a document by specifying its text id string"""
         index = index or self.index
-        documents = self.get_documents_by_id([id], index=index, headers=headers)
-        if documents:
+        if documents := self.get_documents_by_id(
+            [id], index=index, headers=headers
+        ):
             return documents[0]
         else:
             return None
@@ -321,11 +322,12 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
             body["query"]["bool"].update({"filter": LogicalFilterClause.parse(filters).convert_to_elasticsearch()})
         result = self.client.search(body=body, index=index, headers=headers)
 
-        values = []
         current_buckets = result["aggregations"]["metadata_agg"]["buckets"]
         after_key = result["aggregations"]["metadata_agg"].get("after_key", False)
-        for bucket in current_buckets:
-            values.append({"value": bucket["key"][key], "count": bucket["doc_count"]})
+        values = [
+            {"value": bucket["key"][key], "count": bucket["doc_count"]}
+            for bucket in current_buckets
+        ]
 
         # Only 10 results get returned at a time, so apply pagination
         while after_key:
@@ -333,8 +335,10 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
             result = self.client.search(body=body, index=index, headers=headers)
             current_buckets = result["aggregations"]["metadata_agg"]["buckets"]
             after_key = result["aggregations"]["metadata_agg"].get("after_key", False)
-            for bucket in current_buckets:
-                values.append({"value": bucket["key"][key], "count": bucket["doc_count"]})
+            values.extend(
+                {"value": bucket["key"][key], "count": bucket["doc_count"]}
+                for bucket in current_buckets
+            )
 
         return values
 
@@ -401,9 +405,11 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
             }  # type: Dict[str, Any]
 
             # cast embedding type as ES cannot deal with np.array
-            if _doc[self.embedding_field] is not None:
-                if type(_doc[self.embedding_field]) == np.ndarray:
-                    _doc[self.embedding_field] = _doc[self.embedding_field].tolist()
+            if (
+                _doc[self.embedding_field] is not None
+                and type(_doc[self.embedding_field]) == np.ndarray
+            ):
+                _doc[self.embedding_field] = _doc[self.embedding_field].tolist()
 
             # rename id for elastic
             _doc["_id"] = str(_doc.pop("id"))
@@ -414,7 +420,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
 
             # In order to have a flat structure in elastic + similar behaviour to the other DocumentStores,
             # we "unnest" all value within "meta"
-            if "meta" in _doc.keys():
+            if "meta" in _doc:
                 for k, v in _doc["meta"].items():
                     _doc[k] = v
                 _doc.pop("meta")
@@ -449,7 +455,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
 
         label_list: List[Label] = [Label.from_dict(label) if isinstance(label, dict) else label for label in labels]
         duplicate_ids: list = [label.id for label in self._get_duplicate_labels(label_list, index=index)]
-        if len(duplicate_ids) > 0:
+        if duplicate_ids:
             logger.warning(
                 f"Duplicate Label IDs: Inserting a Label whose id already exists in this document store."
                 f" This will overwrite the old Label. Please make sure Label.id is a unique identifier of"
@@ -593,8 +599,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
         result = self.get_all_documents_generator(
             index=index, filters=filters, return_embedding=return_embedding, batch_size=batch_size, headers=headers
         )
-        documents = list(result)
-        return documents
+        return list(result)
 
     def get_all_documents_generator(
         self,
@@ -650,8 +655,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
 
         result = self._get_all_documents_in_index(index=index, filters=filters, batch_size=batch_size, headers=headers)
         for hit in result:
-            document = self._convert_es_hit_to_document(hit, return_embedding=return_embedding)
-            yield document
+            yield self._convert_es_hit_to_document(hit, return_embedding=return_embedding)
 
     def get_all_labels(
         self,
@@ -694,10 +698,14 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
         if only_documents_without_embedding:
             body["query"]["bool"]["must_not"] = [{"exists": {"field": self.embedding_field}}]
 
-        result = self._do_scan(
-            self.client, query=body, index=index, size=batch_size, scroll=self.scroll, headers=headers
+        yield from self._do_scan(
+            self.client,
+            query=body,
+            index=index,
+            size=batch_size,
+            scroll=self.scroll,
+            headers=headers,
         )
-        yield from result
 
     def query(
         self,
@@ -871,11 +879,14 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
         logger.debug("Retriever query: %s", body)
         result = self.client.search(index=index, body=body, headers=headers)["hits"]["hits"]
 
-        documents = [
-            self._convert_es_hit_to_document(hit, return_embedding=self.return_embedding, scale_score=scale_score)
+        return [
+            self._convert_es_hit_to_document(
+                hit,
+                return_embedding=self.return_embedding,
+                scale_score=scale_score,
+            )
             for hit in result
         ]
-        return documents
 
     def query_batch(
         self,
@@ -1002,9 +1013,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
                 custom_query=custom_query,
                 all_terms_must_match=all_terms_must_match,
             )
-            body.append(headers)
-            body.append(cur_query_body)
-
+            body.extend((headers, cur_query_body))
         logger.debug("Retriever query: %s", body)
         responses = self.client.msearch(index=index, body=body)
 
@@ -1031,12 +1040,10 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
 
         # Naive retrieval without BM25, only filtering
         if query is None:
-            body = {"query": {"bool": {"must": {"match_all": {}}}}}  # type: Dict[str, Any]
-            body["size"] = "10000"  # Set to the ES default max_result_window
+            body = {"query": {"bool": {"must": {"match_all": {}}}}, "size": "10000"}
             if filters:
                 body["query"]["bool"]["filter"] = LogicalFilterClause.parse(filters).convert_to_elasticsearch()
 
-        # Retrieval via custom query
         elif custom_query:  # substitute placeholder for query and filters for the custom_query template string
             template = Template(custom_query)
             # replace all "${query}" placeholder(s) with query
@@ -1052,7 +1059,6 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
             # add top_k
             body["size"] = str(top_k)
 
-        # Default Retrieval via BM25 using the user query on `self.search_fields`
         else:
             if not isinstance(query, str):
                 logger.warning(
@@ -1096,8 +1102,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
                 for k, v in hit["_source"].items()
                 if k not in (self.content_field, "content_type", self.embedding_field)
             }
-            name = meta_data.pop(self.name_field, None)
-            if name:
+            if name := meta_data.pop(self.name_field, None):
                 meta_data["name"] = name
 
             if "highlight" in hit:
@@ -1116,8 +1121,7 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
 
             embedding = None
             if return_embedding:
-                embedding_list = hit["_source"].get(self.embedding_field)
-                if embedding_list:
+                if embedding_list := hit["_source"].get(self.embedding_field):
                     embedding = np.asarray(embedding_list, dtype=np.float32)
 
             doc_dict = {
@@ -1131,8 +1135,9 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
             document = Document.from_dict(doc_dict)
         except (KeyError, ValidationError) as e:
             raise DocumentStoreError(
-                f"Failed to create documents from the content of the document store. Make sure the index you specified contains documents."
+                "Failed to create documents from the content of the document store. Make sure the index you specified contains documents."
             ) from e
+
         return document
 
     def update_embeddings(
@@ -1203,8 +1208,9 @@ class SearchEngineDocumentStore(KeywordDocumentStore):
         logger.info(
             "Updating embeddings for all %s docs %s...",
             document_count,
-            "without embeddings" if not update_existing_embeddings else "",
+            "" if update_existing_embeddings else "without embeddings",
         )
+
 
         result = self._get_all_documents_in_index(
             index=index,

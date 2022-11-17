@@ -104,7 +104,7 @@ def initialize_device_settings(
             devices_to_use = torch_devices
         else:
             devices_to_use = devices
-        n_gpu = sum(1 for device in devices_to_use if "cpu" not in device.type)
+        n_gpu = sum("cpu" not in device.type for device in devices_to_use)
     elif local_rank == -1:
         if torch.cuda.is_available():
             if multi_gpu:
@@ -188,8 +188,9 @@ def all_gather_list(data, group=None, max_size=16384):
 
     if enc_size + SIZE_STORAGE_BYTES > max_size:
         raise ValueError(
-            "encoded data exceeds max_size, this can be fixed by increasing buffer size: {}".format(enc_size)
+            f"encoded data exceeds max_size, this can be fixed by increasing buffer size: {enc_size}"
         )
+
 
     rank = dist.get_rank()
     world_size = dist.get_world_size()
@@ -203,13 +204,14 @@ def all_gather_list(data, group=None, max_size=16384):
     buffer.zero_()
     cpu_buffer = all_gather_list._cpu_buffer
 
-    assert enc_size < 256**SIZE_STORAGE_BYTES, "Encoded object size should be less than {} bytes".format(
-        256**SIZE_STORAGE_BYTES
-    )
+    assert (
+        enc_size < 256**SIZE_STORAGE_BYTES
+    ), f"Encoded object size should be less than {256**SIZE_STORAGE_BYTES} bytes"
+
 
     size_bytes = enc_size.to_bytes(SIZE_STORAGE_BYTES, byteorder="big")
 
-    cpu_buffer[0:SIZE_STORAGE_BYTES] = torch.ByteTensor(list(size_bytes))
+    cpu_buffer[:SIZE_STORAGE_BYTES] = torch.ByteTensor(list(size_bytes))
     cpu_buffer[SIZE_STORAGE_BYTES : enc_size + SIZE_STORAGE_BYTES] = torch.ByteTensor(list(enc))
 
     start = rank * max_size
@@ -222,7 +224,7 @@ def all_gather_list(data, group=None, max_size=16384):
         result = []
         for i in range(world_size):
             out_buffer = buffer[i * max_size : (i + 1) * max_size]
-            size = int.from_bytes(out_buffer[0:SIZE_STORAGE_BYTES], byteorder="big")
+            size = int.from_bytes(out_buffer[:SIZE_STORAGE_BYTES], byteorder="big")
             if size > 0:
                 result.append(pickle.loads(bytes(out_buffer[SIZE_STORAGE_BYTES : size + SIZE_STORAGE_BYTES].tolist())))
         return result
@@ -328,7 +330,7 @@ def log_ascii_workers(n, logger):
     f_worker_lines = WORKER_F.split("\n")
     x_worker_lines = WORKER_X.split("\n")
     all_worker_lines = []
-    for i in range(n):
+    for _ in range(n):
         rand = np.random.randint(low=0, high=3)
         if rand % 3 == 0:
             all_worker_lines.append(f_worker_lines)

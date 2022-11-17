@@ -189,18 +189,21 @@ class TransformersDocumentClassifier(BaseDocumentClassifier):
         pb.close()
 
         for prediction, doc in zip(predictions, documents):
-            if self.task == "zero-shot-classification":
-                formatted_prediction = {
-                    "label": prediction["labels"][0],
-                    "score": prediction["scores"][0],
-                    "details": {label: score for label, score in zip(prediction["labels"], prediction["scores"])},
-                }
-            elif self.task == "text-classification":
+            if self.task == "text-classification":
                 formatted_prediction = {
                     "label": prediction[0]["label"],
                     "score": prediction[0]["score"],
                     "details": {el["label"]: el["score"] for el in prediction},
                 }
+            elif self.task == "zero-shot-classification":
+                formatted_prediction = {
+                    "label": prediction["labels"][0],
+                    "score": prediction["scores"][0],
+                    "details": dict(
+                        zip(prediction["labels"], prediction["scores"])
+                    ),
+                }
+
             doc.meta["classification"] = formatted_prediction
 
         return documents

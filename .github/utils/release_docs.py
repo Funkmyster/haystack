@@ -40,7 +40,7 @@ def create_version(new_version, fork_from_version, is_stable=False):
 
 
 def update_version_name(old_unstable_name, new_unstable_name):
-    url = "https://dash.readme.com/api/v1/version/{}".format(old_unstable_name)
+    url = f"https://dash.readme.com/api/v1/version/{old_unstable_name}"
     payload = {"is_beta": False, "version": new_unstable_name, "from": old_unstable_name, "is_hidden": False}
 
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": api_key_b64}
@@ -54,8 +54,7 @@ def generate_new_unstable_name(unstable_version_name):
     version_digits_split = version_digits_str.split(".")
     version_digits_split[1] = str(int(version_digits_split[1]) + 1)
     incremented_version_digits = ".".join(version_digits_split)
-    new_unstable = "v" + incremented_version_digits + "-unstable"
-    return new_unstable
+    return f"v{incremented_version_digits}-unstable"
 
 
 def get_categories(version):
@@ -66,7 +65,7 @@ def get_categories(version):
 
 
 def hide_version(depr_version):
-    url = "https://dash.readme.com/api/v1/version/{}".format(depr_version)
+    url = f"https://dash.readme.com/api/v1/version/{depr_version}"
     payload = {"is_beta": False, "version": depr_version, "from": "", "is_hidden": True}
 
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": api_key_b64}
@@ -80,18 +79,12 @@ def generate_new_depr_name(depr_name):
     version_digits_split = version_digits_str.split(".")
     version_digits_split[1] = str(int(version_digits_split[1]) + 1)
     incremented_version_digits = ".".join(version_digits_split)
-    new_depr = "v" + incremented_version_digits + "-and-older"
-    return new_depr
+    return f"v{incremented_version_digits}-and-older"
 
 
 def get_old_and_older_name(versions):
-    ret = []
-    for v in versions:
-        if v.endswith("-and-older"):
-            ret.append(v)
-    if len(ret) == 1:
-        return ret[0]
-    return None
+    ret = [v for v in versions if v.endswith("-and-older")]
+    return ret[0] if len(ret) == 1 else None
 
 
 def generate_new_and_older_name(old):
@@ -99,8 +92,7 @@ def generate_new_and_older_name(old):
     digits_split = digits_str.split(".")
     digits_split[1] = str(int(digits_split[1]) + 1)
     incremented_digits = ".".join(digits_split)
-    new = "v" + incremented_digits + "-and-older"
-    return new
+    return f"v{incremented_digits}-and-older"
 
 
 if __name__ == "__main__":
@@ -123,9 +115,15 @@ if __name__ == "__main__":
     new_version = ".".join(new_version.split(".")[:2])
     versions = get_versions()
 
-    curr_unstable = new_version + "-unstable"
-    assert new_version[1:] not in versions, "Version {} already exists in Readme.".format(new_version[1:])
-    assert curr_unstable[1:] in versions, "Version {} does not exist in Readme.".format(curr_unstable[1:])
+    curr_unstable = f"{new_version}-unstable"
+    assert (
+        new_version[1:] not in versions
+    ), f"Version {new_version[1:]} already exists in Readme."
+
+    assert (
+        curr_unstable[1:] in versions
+    ), f"Version {curr_unstable[1:]} does not exist in Readme."
+
 
     # create v1.9 forked from v1.9-unstable
     create_version(new_version=new_version, fork_from_version=curr_unstable, is_stable=False)

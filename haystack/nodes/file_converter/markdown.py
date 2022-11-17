@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple, Any
 try:
     from bs4 import BeautifulSoup, NavigableString
     from markdown import markdown
-except (ImportError, ModuleNotFoundError) as ie:
+except ImportError as ie:
     from haystack.utils.import_utils import _optional_component_not_installed
 
     _optional_component_not_installed(__name__, "preprocessing", ie)

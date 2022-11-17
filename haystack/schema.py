@@ -87,7 +87,7 @@ class Document:
         """
 
         if content is None:
-            raise ValueError(f"Can't create 'Document': Mandatory 'content' field is None")
+            raise ValueError("Can't create 'Document': Mandatory 'content' field is None")
 
         self.content = content
         self.content_type = content_type
@@ -96,11 +96,12 @@ class Document:
 
         allowed_hash_key_attributes = ["content", "content_type", "score", "meta", "embedding"]
 
-        if id_hash_keys is not None:
-            if not set(id_hash_keys) <= set(allowed_hash_key_attributes):  # type: ignore
-                raise ValueError(
-                    f"You passed custom strings {id_hash_keys} to id_hash_keys which is deprecated. Supply instead a list of Document's attribute names that the id should be based on (e.g. {allowed_hash_key_attributes}). See https://github.com/deepset-ai/haystack/pull/1910 for details)"
-                )
+        if id_hash_keys is not None and not set(id_hash_keys) <= set(
+            allowed_hash_key_attributes
+        ):
+            raise ValueError(
+                f"You passed custom strings {id_hash_keys} to id_hash_keys which is deprecated. Supply instead a list of Document's attribute names that the id should be based on (e.g. {allowed_hash_key_attributes}). See https://github.com/deepset-ai/haystack/pull/1910 for details)"
+            )
 
         if embedding is not None:
             embedding = np.asarray(embedding)
@@ -123,16 +124,14 @@ class Document:
         if id_hash_keys is None:
             return "{:02x}".format(mmh3.hash128(str(self.content), signed=False))
 
-        final_hash_key = ""
-        for attr in id_hash_keys:
-            final_hash_key += ":" + str(getattr(self, attr))
-
-        if final_hash_key == "":
+        if final_hash_key := "".join(
+            f":{str(getattr(self, attr))}" for attr in id_hash_keys
+        ):
+            return "{:02x}".format(mmh3.hash128(final_hash_key, signed=False))
+        else:
             raise ValueError(
-                f"Cant't create 'Document': 'id_hash_keys' must contain at least one of ['content', 'meta']"
+                "Cant't create 'Document': 'id_hash_keys' must contain at least one of ['content', 'meta']"
             )
-
-        return "{:02x}".format(mmh3.hash128(final_hash_key, signed=False))
 
     def to_dict(self, field_map={}) -> Dict:
         """
@@ -153,10 +152,12 @@ class Document:
             # Exclude internal fields (Pydantic, ...) fields from the conversion process
             if k.startswith("__"):
                 continue
-            if k == "content":
-                # Convert pd.DataFrame to list of rows for serialization
-                if self.content_type == "table" and isinstance(self.content, pd.DataFrame):
-                    v = [self.content.columns.tolist()] + self.content.values.tolist()
+            if (
+                k == "content"
+                and self.content_type == "table"
+                and isinstance(self.content, pd.DataFrame)
+            ):
+                v = [self.content.columns.tolist()] + self.content.values.tolist()
             k = k if k not in inv_field_map else inv_field_map[k]
             _doc[k] = v
         return _doc
@@ -208,8 +209,7 @@ class Document:
 
     def to_json(self, field_map={}) -> str:
         d = self.to_dict(field_map=field_map)
-        j = json.dumps(d, cls=NumpyEncoder)
-        return j
+        return json.dumps(d, cls=NumpyEncoder)
 
     @classmethod
     def from_json(cls, data: str, field_map={}):
@@ -448,9 +448,11 @@ class SpeechAnswer(Answer):
 
     def __str__(self):
         # self.context might be None (therefore not subscriptable)
-        if not self.context:
-            return f"<SpeechAnswer: answer='{self.answer}', answer_audio={self.answer_audio}, score={self.score}, context=None>"
-        return f"<SpeechAnswer: answer='{self.answer}', answer_audio={self.answer_audio}, score={self.score}, context='{self.context[:50]}{'...' if len(self.context) > 50 else ''}', context_audio={self.context_audio}>"
+        return (
+            f"<SpeechAnswer: answer='{self.answer}', answer_audio={self.answer_audio}, score={self.score}, context='{self.context[:50]}{'...' if len(self.context) > 50 else ''}', context_audio={self.context_audio}>"
+            if self.context
+            else f"<SpeechAnswer: answer='{self.answer}', answer_audio={self.answer_audio}, score={self.score}, context=None>"
+        )
 
     def __repr__(self):
         return f"<SpeechAnswer {asdict(self)}>"
@@ -545,11 +547,7 @@ class Label:
         """
 
         # Create a unique ID (either new one, or one from user input)
-        if id:
-            self.id = str(id)
-        else:
-            self.id = str(uuid4())
-
+        self.id = str(id) if id else str(uuid4())
         if created_at is None:
             created_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.created_at = created_at
@@ -574,18 +572,16 @@ class Label:
         # TODO autofill answer.document_id if Document is provided
 
         self.pipeline_id = pipeline_id
-        if not meta:
-            self.meta = {}
-        else:
-            self.meta = meta
+        self.meta = meta or {}
         self.filters = filters
 
     @property
     def no_answer(self) -> Optional[bool]:
-        no_answer = None
-        if self.answer is not None:
-            no_answer = self.answer.answer is None or self.answer.answer.strip() == ""
-        return no_answer
+        return (
+            self.answer.answer is None or self.answer.answer.strip() == ""
+            if self.answer is not None
+            else None
+        )
 
     def to_dict(self):
         return asdict(self)
@@ -700,11 +696,16 @@ class MultiLabel:
             self.offsets_in_contexts = []
             for answer in answered:
                 if answer.offsets_in_document is not None:
-                    for span in answer.offsets_in_document:
-                        self.offsets_in_documents.append({"start": span.start, "end": span.end})
+                    self.offsets_in_documents.extend(
+                        {"start": span.start, "end": span.end}
+                        for span in answer.offsets_in_document
+                    )
+
                 if answer.offsets_in_context is not None:
-                    for span in answer.offsets_in_context:
-                        self.offsets_in_contexts.append({"start": span.start, "end": span.end})
+                    self.offsets_in_contexts.extend(
+                        {"start": span.start, "end": span.end}
+                        for span in answer.offsets_in_context
+                    )
 
         # There are two options here to represent document_ids:
         # taking the id from the document of each label or taking the document_id of each label's answer.
@@ -771,8 +772,7 @@ def _pydantic_dataclass_from_dict(dict: dict, pydantic_dataclass_type) -> Any:
         value = getattr(base_model, base_model_field_name)
         values[base_model_field_name] = value
 
-    dataclass_object = pydantic_dataclass_type(**values)
-    return dataclass_object
+    return pydantic_dataclass_type(**values)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -1146,7 +1146,7 @@ class EvaluationResult:
         document_relevance_criterion: str = document_scope
         if document_scope in ["answer", "document_id_or_answer"]:
             document_relevance_criterion = answer_scope_to_doc_relevance_crit.get(answer_scope, document_scope)
-        elif answer_scope in answer_scope_to_doc_relevance_crit.keys():
+        elif answer_scope in answer_scope_to_doc_relevance_crit:
             logger.warning(
                 f"You specified a non-answer document_scope together with a non-default answer_scope. "
                 f"This may result in inconsistencies between answer and document metrics. "
@@ -1275,8 +1275,7 @@ class EvaluationResult:
             }
             df_records.append(query_metrics)
 
-        metrics_df = pd.DataFrame.from_records(df_records, index=multilabel_ids)
-        return metrics_df
+        return pd.DataFrame.from_records(df_records, index=multilabel_ids)
 
     def _get_documents_df(self):
         document_dfs = [
@@ -1285,8 +1284,7 @@ class EvaluationResult:
         if len(document_dfs) != 1:
             raise ValueError("cannot detect retriever dataframe")
         documents_df = document_dfs[0]
-        documents_df = documents_df[documents_df["type"] == "document"]
-        return documents_df
+        return documents_df[documents_df["type"] == "document"]
 
     def _calculate_document_metrics(
         self,
@@ -1412,8 +1410,9 @@ class EvaluationResult:
                 }
             )
 
-        metrics_df = pd.DataFrame.from_records(metrics, index=documents["multilabel_id"].unique())
-        return metrics_df
+        return pd.DataFrame.from_records(
+            metrics, index=documents["multilabel_id"].unique()
+        )
 
     def save(self, out_dir: Union[str, Path], **to_csv_kwargs):
         """
@@ -1468,10 +1467,9 @@ class EvaluationResult:
         ]
         converters = dict.fromkeys(cols_to_convert, ast.literal_eval)
         default_read_csv_kwargs = {"converters": converters, "header": 0}
-        read_csv_kwargs = {**default_read_csv_kwargs, **read_csv_kwargs}
+        read_csv_kwargs = default_read_csv_kwargs | read_csv_kwargs
         node_results = {file.stem: pd.read_csv(file, **read_csv_kwargs) for file in csv_files}
         # backward compatibility mappings
         for df in node_results.values():
             df.rename(columns={"gold_document_contents": "gold_contexts", "content": "context"}, inplace=True)
-        result = cls(node_results)
-        return result
+        return cls(node_results)

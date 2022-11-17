@@ -272,12 +272,15 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         if index is None:
             index = self.index
 
-        doc_dict = self.client.get_document(id=id, index=index, headers=headers)
-        doc: Optional[Document] = None
-        if doc_dict:
-            doc = Document.from_dict(doc_dict)
-
-        return doc
+        return (
+            Document.from_dict(doc_dict)
+            if (
+                doc_dict := self.client.get_document(
+                    id=id, index=index, headers=headers
+                )
+            )
+            else None
+        )
 
     def get_documents_by_id(
         self,
@@ -414,8 +417,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
             scale_score=scale_score,
             headers=headers,
         )
-        docs = [Document.from_dict(doc) for doc in doc_dicts]
-        return docs
+        return [Document.from_dict(doc) for doc in doc_dicts]
 
     def query(
         self,
@@ -521,8 +523,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
             scale_score=scale_score,
             headers=headers,
         )
-        docs = [Document.from_dict(doc) for doc in doc_dicts]
-        return docs
+        return [Document.from_dict(doc) for doc in doc_dicts]
 
     def query_batch(
         self,

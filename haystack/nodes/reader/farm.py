@@ -221,8 +221,8 @@ class FARMReader(BaseReader):
 
         # 1. Create a DataProcessor that handles all the conversion from raw text into a pytorch Dataset
         label_list = ["start_token", "end_token"]
-        metric = "squad"
         if processor is None:
+            metric = "squad"
             processor = SquadProcessor(
                 tokenizer=self.inferencer.processor.tokenizer,
                 max_seq_len=max_seq_len,
@@ -778,8 +778,8 @@ class FARMReader(BaseReader):
                     if os.path.getsize(file_path) > (5 * 1024 * 1024):
                         large_files.append(rel_path)
 
-            if len(large_files) > 0:
-                logger.info("Track files with git lfs: {}".format(", ".join(large_files)))
+            if large_files:
+                logger.info(f'Track files with git lfs: {", ".join(large_files)}')
                 repo.lfs_track(large_files)
 
             logger.info("Push model to the hub. This might take a while")
@@ -846,7 +846,7 @@ class FARMReader(BaseReader):
 
         # Group answers by question in case of multiple queries and single doc list
         if single_doc_list and len(queries) > 1:
-            answers_per_query = int(len(results["answers"]) / len(queries))
+            answers_per_query = len(results["answers"]) // len(queries)
             answers = []
             for i in range(0, len(results["answers"]), answers_per_query):
                 answer_group = results["answers"][i : i + answers_per_query]
@@ -896,10 +896,7 @@ class FARMReader(BaseReader):
         )
         # assemble answers from all the different documents & format them.
         answers, max_no_ans_gap = self._extract_answers_of_predictions(predictions, top_k)
-        # TODO: potentially simplify return here to List[Answer] and handle no_ans_gap differently
-        result = {"query": query, "no_ans_gap": max_no_ans_gap, "answers": answers}
-
-        return result
+        return {"query": query, "no_ans_gap": max_no_ans_gap, "answers": answers}
 
     def eval_on_file(
         self,
@@ -930,11 +927,7 @@ class FARMReader(BaseReader):
             "If you are just about starting to evaluate your model consider using `Pipeline.eval()` instead."
         )
 
-        if device is None:
-            device = self.devices[0]
-        else:
-            device = torch.device(device)
-
+        device = self.devices[0] if device is None else torch.device(device)
         eval_processor = SquadProcessor(
             tokenizer=self.inferencer.processor.tokenizer,
             max_seq_len=self.inferencer.processor.max_seq_len,
@@ -957,23 +950,26 @@ class FARMReader(BaseReader):
             calibrate_conf_scores=calibrate_conf_scores,
             use_confidence_scores_for_ranking=self.use_confidence_scores,
         )
-        results = {
+        return {
             "EM": eval_results[0]["EM"] * 100,
             "f1": eval_results[0]["f1"] * 100,
             "top_n_accuracy": eval_results[0]["top_n_accuracy"] * 100,
             "top_n": self.inferencer.model.prediction_heads[0].n_best,
             "EM_text_answer": eval_results[0]["EM_text_answer"] * 100,
             "f1_text_answer": eval_results[0]["f1_text_answer"] * 100,
-            "top_n_accuracy_text_answer": eval_results[0]["top_n_accuracy_text_answer"] * 100,
+            "top_n_accuracy_text_answer": eval_results[0][
+                "top_n_accuracy_text_answer"
+            ]
+            * 100,
             "top_n_EM_text_answer": eval_results[0]["top_n_EM_text_answer"] * 100,
             "top_n_f1_text_answer": eval_results[0]["top_n_f1_text_answer"] * 100,
             "Total_text_answer": eval_results[0]["Total_text_answer"],
             "EM_no_answer": eval_results[0]["EM_no_answer"] * 100,
             "f1_no_answer": eval_results[0]["f1_no_answer"] * 100,
-            "top_n_accuracy_no_answer": eval_results[0]["top_n_accuracy_no_answer"] * 100,
+            "top_n_accuracy_no_answer": eval_results[0]["top_n_accuracy_no_answer"]
+            * 100,
             "Total_no_answer": eval_results[0]["Total_no_answer"],
         }
-        return results
 
     def eval(
         self,
@@ -1008,11 +1004,7 @@ class FARMReader(BaseReader):
             "If you are just about starting to evaluate your model consider using `Pipeline.eval()` instead."
         )
 
-        if device is None:
-            device = self.devices[0]
-        else:
-            device = torch.device(device)
-
+        device = self.devices[0] if device is None else torch.device(device)
         if self.top_k_per_candidate != 4:
             logger.info(
                 f"Performing Evaluation using top_k_per_candidate = {self.top_k_per_candidate} \n"
@@ -1059,7 +1051,7 @@ class FARMReader(BaseReader):
                         continue
                     # add to existing answers
                     # TODO offsets (whole block)
-                    if aggregation_key in aggregated_per_question.keys():
+                    if aggregation_key in aggregated_per_question:
                         if label.no_answer:
                             continue
 
@@ -1073,34 +1065,31 @@ class FARMReader(BaseReader):
                             {"text": label.answer.answer, "answer_start": label.answer.offsets_in_document[0].start}
                         )
                         aggregated_per_question[aggregation_key]["is_impossible"] = False
-                    # create new one
+                    elif label.no_answer == True:
+                        aggregated_per_question[aggregation_key] = {
+                            "id": str(hash(str(doc_id) + label.query)),
+                            "question": label.query,
+                            "answers": [],
+                            "is_impossible": True,
+                        }
                     else:
-                        # We don't need to create an answer dict if is_impossible / no_answer
-                        if label.no_answer == True:
-                            aggregated_per_question[aggregation_key] = {
-                                "id": str(hash(str(doc_id) + label.query)),
-                                "question": label.query,
-                                "answers": [],
-                                "is_impossible": True,
-                            }
-                        else:
-                            aggregated_per_question[aggregation_key] = {
-                                "id": str(hash(str(doc_id) + label.query)),
-                                "question": label.query,
-                                "answers": [
-                                    {
-                                        "text": label.answer.answer,
-                                        "answer_start": label.answer.offsets_in_document[0].start,
-                                    }
-                                ],
-                                "is_impossible": False,
-                            }
+                        aggregated_per_question[aggregation_key] = {
+                            "id": str(hash(str(doc_id) + label.query)),
+                            "question": label.query,
+                            "answers": [
+                                {
+                                    "text": label.answer.answer,
+                                    "answer_start": label.answer.offsets_in_document[0].start,
+                                }
+                            ],
+                            "is_impossible": False,
+                        }
 
             # Get rid of the question key again (after we aggregated we don't need it anymore)
-            d[str(doc_id)]["qas"] = [v for v in aggregated_per_question.values()]
+            d[str(doc_id)]["qas"] = list(aggregated_per_question.values())
 
         # Convert input format for FARM
-        farm_input = [v for v in d.values()]
+        farm_input = list(d.values())
         n_queries = len([y for x in farm_input for y in x["qas"]])
 
         # Create DataLoader that can be passed to the Evaluator
@@ -1120,7 +1109,7 @@ class FARMReader(BaseReader):
         )
         toc = perf_counter()
         reader_time = toc - tic
-        results = {
+        return {
             "EM": eval_results[0]["EM"] * 100,
             "f1": eval_results[0]["f1"] * 100,
             "top_n_accuracy": eval_results[0]["top_n_accuracy"] * 100,
@@ -1129,16 +1118,19 @@ class FARMReader(BaseReader):
             "seconds_per_query": reader_time / n_queries,
             "EM_text_answer": eval_results[0]["EM_text_answer"] * 100,
             "f1_text_answer": eval_results[0]["f1_text_answer"] * 100,
-            "top_n_accuracy_text_answer": eval_results[0]["top_n_accuracy_text_answer"] * 100,
+            "top_n_accuracy_text_answer": eval_results[0][
+                "top_n_accuracy_text_answer"
+            ]
+            * 100,
             "top_n_EM_text_answer": eval_results[0]["top_n_EM_text_answer"] * 100,
             "top_n_f1_text_answer": eval_results[0]["top_n_f1_text_answer"] * 100,
             "Total_text_answer": eval_results[0]["Total_text_answer"],
             "EM_no_answer": eval_results[0]["EM_no_answer"] * 100,
             "f1_no_answer": eval_results[0]["f1_no_answer"] * 100,
-            "top_n_accuracy_no_answer": eval_results[0]["top_n_accuracy_no_answer"] * 100,
+            "top_n_accuracy_no_answer": eval_results[0]["top_n_accuracy_no_answer"]
+            * 100,
             "Total_no_answer": eval_results[0]["Total_no_answer"],
         }
-        return results
 
     def _extract_answers_of_predictions(self, predictions: List[QAPred], top_k: Optional[int] = None):
         # Assemble answers from all the different documents and format them.
@@ -1153,9 +1145,7 @@ class FARMReader(BaseReader):
             no_ans_gaps.append(pred.no_answer_gap)
             for ans in pred.prediction:
                 # skip 'no answers' here
-                if self._check_no_answer(ans):
-                    pass
-                else:
+                if not self._check_no_answer(ans):
                     cur = Answer(
                         answer=ans.answer,
                         type="extractive",
@@ -1215,12 +1205,10 @@ class FARMReader(BaseReader):
                     cur = QAInput(doc_text=doc.content, questions=Question(text=query, uid=doc.id))
                     inputs.append(cur)
 
-        # Docs case 2: list of lists of Documents -> apply each query to corresponding list of Documents, if queries
-        # contains only one query, apply it to each list of Documents
         elif len(documents) > 0 and isinstance(documents[0], list):
             single_doc_list = False
             if len(queries) == 1:
-                queries = queries * len(documents)
+                queries *= len(documents)
             if len(queries) != len(documents):
                 raise HaystackError("Number of queries must be equal to number of provided Document lists.")
             for query, cur_docs in zip(queries, documents):
@@ -1268,11 +1256,14 @@ class FARMReader(BaseReader):
     @staticmethod
     def _check_no_answer(c: QACandidate):
         # check for correct value in "answer"
-        if c.offset_answer_start == 0 and c.offset_answer_end == 0:
-            if c.answer != "no_answer":
-                logger.error(
-                    "Invalid 'no_answer': Got a prediction for position 0, but answer string is not 'no_answer'"
-                )
+        if (
+            c.offset_answer_start == 0
+            and c.offset_answer_end == 0
+            and c.answer != "no_answer"
+        ):
+            logger.error(
+                "Invalid 'no_answer': Got a prediction for position 0, but answer string is not 'no_answer'"
+            )
         return c.answer == "no_answer"
 
     def predict_on_texts(self, question: str, texts: List[str], top_k: Optional[int] = None):
@@ -1300,11 +1291,8 @@ class FARMReader(BaseReader):
         :param top_k: The maximum number of answers to return
         :return: Dict containing question and answers
         """
-        documents = []
-        for text in texts:
-            documents.append(Document(content=text))
-        predictions = self.predict(question, documents, top_k)
-        return predictions
+        documents = [Document(content=text) for text in texts]
+        return self.predict(question, documents, top_k)
 
     @classmethod
     def convert_to_onnx(
