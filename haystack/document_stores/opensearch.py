@@ -39,7 +39,7 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
     def __init__(
         self,
         scheme: str = "https",  # Mind this different default param
-        username: str = "admin",  # Mind this different default param
+        username: str = None,  # Mind this different default param
         password: str = "admin",  # Mind this different default param
         host: Union[str, List[str]] = "localhost",
         port: Union[int, List[int]] = 9200,
