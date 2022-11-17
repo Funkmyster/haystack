@@ -67,12 +67,15 @@ class BaseReader(BaseComponent):
         # Add corresponding document_name and more meta data, if the answer contains the document_id
         if answer.meta is None:
             answer.meta = {}
-        # get meta from doc
-        meta_from_doc = {}
-        for doc in documents:
-            if doc.id == answer.document_id:
-                meta_from_doc = deepcopy(doc.meta)
-                break
+        meta_from_doc = next(
+            (
+                deepcopy(doc.meta)
+                for doc in documents
+                if doc.id == answer.document_id
+            ),
+            {},
+        )
+
         # append to "own" meta
         answer.meta.update(meta_from_doc)
         return answer
@@ -136,18 +139,18 @@ class BaseReader(BaseComponent):
 
         # run evaluation with labels as node inputs
         if add_isolated_node_eval and labels is not None:
-            relevant_documents = []
-            for labelx in labels:
-                relevant_documents.append([label.document for label in labelx.labels])
+            relevant_documents = [
+                [label.document for label in labelx.labels] for labelx in labels
+            ]
+
             results_label_input = predict_batch(queries=queries, documents=relevant_documents, top_k=top_k)
 
             # Add corresponding document_name and more meta data, if an answer contains the document_id
             answer_iterator = itertools.chain.from_iterable(results_label_input["answers"])
-            if isinstance(documents[0], Document):
-                if isinstance(queries, list):
-                    answer_iterator = itertools.chain.from_iterable(
-                        itertools.chain.from_iterable(results_label_input["answers"])
-                    )
+            if isinstance(documents[0], Document) and isinstance(queries, list):
+                answer_iterator = itertools.chain.from_iterable(
+                    itertools.chain.from_iterable(results_label_input["answers"])
+                )
             flattened_documents = []
             for doc_list in documents:
                 if isinstance(doc_list, list):

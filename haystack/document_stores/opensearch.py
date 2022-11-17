@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 try:
     from opensearchpy import OpenSearch, Urllib3HttpConnection, RequestsHttpConnection, NotFoundError, RequestError
     from opensearchpy.helpers import bulk, scan
-except (ImportError, ModuleNotFoundError) as e:
+except ImportError as e:
     from haystack.utils.import_utils import _optional_component_not_installed
 
     _optional_component_not_installed(__name__, "opensearch", e)
@@ -243,7 +243,7 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
 
         if username:
             # standard http_auth
-            client = OpenSearch(
+            return OpenSearch(
                 hosts=hosts,
                 http_auth=(username, password),
                 scheme=scheme,
@@ -252,10 +252,11 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
                 timeout=timeout,
                 connection_class=connection_class,
             )
+
         elif aws4auth:
             # Sign requests to Opensearch with IAM credentials
             # see https://docs.aws.amazon.com/opensearch-service/latest/developerguide/request-signing.html#request-signing-python
-            client = OpenSearch(
+            return OpenSearch(
                 hosts=hosts,
                 http_auth=aws4auth,
                 connection_class=RequestsHttpConnection,
@@ -263,9 +264,10 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
                 verify_certs=True,
                 timeout=timeout,
             )
+
         else:
             # no authentication needed
-            client = OpenSearch(
+            return OpenSearch(
                 hosts=hosts,
                 scheme=scheme,
                 ca_certs=ca_certs,
@@ -273,8 +275,6 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
                 timeout=timeout,
                 connection_class=connection_class,
             )
-
-        return client
 
     def write_documents(
         self,
@@ -465,13 +465,15 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
         logger.debug("Retriever query: %s", body)
         result = self.client.search(index=index, body=body, request_timeout=300, headers=headers)["hits"]["hits"]
 
-        documents = [
+        return [
             self._convert_es_hit_to_document(
-                hit, adapt_score_for_embedding=True, return_embedding=return_embedding, scale_score=scale_score
+                hit,
+                adapt_score_for_embedding=True,
+                return_embedding=return_embedding,
+                scale_score=scale_score,
             )
             for hit in result
         ]
-        return documents
 
     def _create_document_index(self, index_name: str, headers: Optional[Dict[str, str]] = None):
         """
@@ -633,8 +635,11 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
         else:
             logger.error("Please set index_type to either 'flat' or 'hnsw'")
 
-        embeddings_field_mapping = {"type": "knn_vector", "dimension": self.embedding_dim, "method": method}
-        return embeddings_field_mapping
+        return {
+            "type": "knn_vector",
+            "dimension": self.embedding_dim,
+            "method": method,
+        }
 
     def _create_label_index(self, index_name: str, headers: Optional[Dict[str, str]] = None):
         if self.client.indices.exists(index=index_name, headers=headers):
@@ -673,16 +678,9 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
         """
         Generate Elasticsearch query for vector similarity.
         """
-        if self.embeddings_field_supports_similarity:
-            if self.knn_engine == "faiss" and self.similarity == "cosine":
-                self.normalize_embedding(query_emb)
-
-            query: dict = {
-                "bool": {"must": [{"knn": {self.embedding_field: {"vector": query_emb.tolist(), "k": top_k}}}]}
-            }
-        else:
+        if not self.embeddings_field_supports_similarity:
             # if we do not have a proper similarity field we have to fall back to exact but slow vector similarity calculation
-            query = {
+            return {
                 "script_score": {
                     "query": {"match_all": {}},
                     "script": {
@@ -691,12 +689,31 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
                         "params": {
                             "field": self.embedding_field,
                             "query_value": query_emb.tolist(),
-                            "space_type": SIMILARITY_SPACE_TYPE_MAPPINGS["nmslib"][self.similarity],
+                            "space_type": SIMILARITY_SPACE_TYPE_MAPPINGS["nmslib"][
+                                self.similarity
+                            ],
                         },
                     },
                 }
             }
-        return query
+
+        if self.knn_engine == "faiss" and self.similarity == "cosine":
+            self.normalize_embedding(query_emb)
+
+        return {
+            "bool": {
+                "must": [
+                    {
+                        "knn": {
+                            self.embedding_field: {
+                                "vector": query_emb.tolist(),
+                                "k": top_k,
+                            }
+                        }
+                    }
+                ]
+            }
+        }
 
     def _get_raw_similarity_score(self, score):
         # adjust scores according to https://opensearch.org/docs/latest/search-plugins/knn/approximate-knn
@@ -704,19 +721,22 @@ class OpenSearchDocumentStore(SearchEngineDocumentStore):
 
         # space type is required as criterion as there is no consistent similarity-to-space-type mapping accross knn engines
         space_type = SIMILARITY_SPACE_TYPE_MAPPINGS[self.knn_engine][self.similarity]
-        if space_type == "innerproduct":
-            if score > 1:
-                score = score - 1
-            else:
-                score = -(1 / score - 1)
+        if (
+            space_type == "cosinesimil"
+            and self.embeddings_field_supports_similarity
+        ):
+            score = -(1 / score - 2)
+        elif (
+            space_type == "cosinesimil"
+            or space_type == "innerproduct"
+            and score > 1
+        ):
+            score = score - 1
+
+        elif space_type == "innerproduct":
+            score = -(1 / score - 1)
         elif space_type == "l2":
             score = 1 / score - 1
-        elif space_type == "cosinesimil":
-            if self.embeddings_field_supports_similarity:
-                score = -(1 / score - 2)
-            else:
-                score = score - 1
-
         return score
 
     def clone_embedding_field(

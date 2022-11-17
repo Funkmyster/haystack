@@ -17,7 +17,7 @@ class HaystackModel(ABC):
 
     def __init__(
         self, pretrained_model_name_or_path: Union[str, Path], model_type: Optional[str], content_type: str
-    ):  # replace the type of content_type with ContentTypes starting Python3.8
+    ):    # replace the type of content_type with ContentTypes starting Python3.8
         """
         :param pretrained_model_name_or_path: The name of the model to load
         :param model_type: the value of `model_type` from the model's `Config` class.
@@ -25,10 +25,9 @@ class HaystackModel(ABC):
             See the values of `haystack.schema.ContentTypes`.
         """
         logger.info(
-            f" 🤖 Loading '{pretrained_model_name_or_path}' "
-            f"({self.__class__.__name__} of type '{model_type if model_type else '<unknown>'}' "
-            f"for {content_type} data)"
+            f" 🤖 Loading '{pretrained_model_name_or_path}' ({self.__class__.__name__} of type '{model_type or '<unknown>'}' for {content_type} data)"
         )
+
         self.model_name_or_path = pretrained_model_name_or_path
         self.model_type = model_type
         self.content_type = content_type

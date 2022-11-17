@@ -69,13 +69,14 @@ class Evaluator:
         passage_start_t_all: List = [[] for _ in model.prediction_heads]
         logits_all: List = [[] for _ in model.prediction_heads]
 
-        for step, batch in enumerate(tqdm(self.data_loader, desc="Evaluating", mininterval=10)):
+        for batch in tqdm(self.data_loader, desc="Evaluating", mininterval=10):
             batch = {key: batch[key].to(self.device) for key in batch}
 
-            if isinstance(model, (DataParallel, WrappedDataParallel)):
-                module = model.module
-            else:
-                module = model
+            module = (
+                model.module
+                if isinstance(model, (DataParallel, WrappedDataParallel))
+                else model
+            )
 
             with torch.no_grad():
                 if isinstance(module, AdaptiveModel):
@@ -139,7 +140,12 @@ class Evaluator:
                     ids=head_ids,
                 )
             result = {"loss": loss_all[head_num] / len(self.data_loader.dataset), "task_name": head.task_name}
-            result.update(compute_metrics(metric=head.metric, preds=preds_all[head_num], labels=label_all[head_num]))
+            result |= compute_metrics(
+                metric=head.metric,
+                preds=preds_all[head_num],
+                labels=label_all[head_num],
+            )
+
             # Select type of report depending on prediction head output type
             if self.report:
                 try:
@@ -182,25 +188,29 @@ class Evaluator:
         header += BUSH_SEP + "\n"
         logger.info(header)
 
-        for head_num, head in enumerate(results):
-            logger.info("\n _________ {} _________".format(head["task_name"]))
+        for head in results:
+            logger.info(f'\n _________ {head["task_name"]} _________')
             for metric_name, metric_val in head.items():
                 # log with experiment tracking framework (e.g. Mlflow)
-                if logging:
-                    if not metric_name in ["preds", "labels"] and not metric_name.startswith("_"):
-                        if isinstance(metric_val, numbers.Number):
-                            tracker.track_metrics(
-                                metrics={f"{dataset_name}_{metric_name}_{head['task_name']}": metric_val}, step=steps
-                            )
-                # print via standard python logger
+                if (
+                    logging
+                    and metric_name not in ["preds", "labels"]
+                    and not metric_name.startswith("_")
+                    and isinstance(metric_val, numbers.Number)
+                ):
+                    tracker.track_metrics(
+                        metrics={f"{dataset_name}_{metric_name}_{head['task_name']}": metric_val}, step=steps
+                    )
                 if print:
                     if metric_name == "report":
                         if isinstance(metric_val, str) and len(metric_val) > 8000:
                             metric_val = metric_val[:7500] + "\n ............................. \n" + metric_val[-500:]
-                        logger.info("{}: \n {}".format(metric_name, metric_val))
-                    else:
-                        if not metric_name in ["preds", "labels"] and not metric_name.startswith("_"):
-                            logger.info("{}: {}".format(metric_name, metric_val))
+                        logger.info(f"{metric_name}: \n {metric_val}")
+                    elif metric_name not in [
+                        "preds",
+                        "labels",
+                    ] and not metric_name.startswith("_"):
+                        logger.info(f"{metric_name}: {metric_val}")
 
 
 def _to_numpy(container):

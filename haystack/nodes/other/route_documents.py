@@ -42,7 +42,7 @@ class RouteDocuments(BaseComponent):
     @classmethod
     def _calculate_outgoing_edges(cls, component_params: Dict[str, Any]) -> int:
         split_by = component_params.get("split_by", "content_type")
-        metadata_values = component_params.get("metadata_values", None)
+        metadata_values = component_params.get("metadata_values")
         # If we split list of Documents by a metadata field, number of outgoing edges might change
         if split_by != "content_type" and metadata_values is not None:
             return len(metadata_values)
@@ -80,11 +80,10 @@ class RouteDocuments(BaseComponent):
     def run_batch(self, documents: Union[List[Document], List[List[Document]]]) -> Tuple[Dict, str]:  # type: ignore
         if isinstance(documents[0], Document):
             return self.run(documents)  # type: ignore
-        else:
-            split_documents = defaultdict(list)
-            for doc_list in documents:
-                results, _ = self.run(documents=doc_list)  # type: ignore
-                for key in results:
-                    split_documents[key].append(results[key])
+        split_documents = defaultdict(list)
+        for doc_list in documents:
+            results, _ = self.run(documents=doc_list)  # type: ignore
+            for key in results:
+                split_documents[key].append(results[key])
 
-            return split_documents, "split"
+        return split_documents, "split"

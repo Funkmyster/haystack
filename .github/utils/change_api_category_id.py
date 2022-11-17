@@ -29,10 +29,10 @@ def change_api_category_id(new_version, docs_dir):
         for file in files:
             if file.endswith(".yml"):
                 file_path = os.path.join(root, file)
-                lines = [l for l in open(file_path, "r")]
+                lines = list(open(file_path, "r"))
                 for l in lines:
                     if "category: " in l:
-                        lines[lines.index(l)] = "   category: {}\n".format(category_id)
+                        lines[lines.index(l)] = f"   category: {category_id}\n"
                 content = "".join(lines)
                 with open(file_path, "w") as f:
                     f.write(content)

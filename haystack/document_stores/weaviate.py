@@ -12,7 +12,7 @@ from tqdm import tqdm
 try:
     import weaviate
     from weaviate import client, AuthClientPassword, gql
-except (ImportError, ModuleNotFoundError) as ie:
+except ImportError as ie:
     from haystack.utils.import_utils import _optional_component_not_installed
 
     _optional_component_not_installed(__name__, "weaviate", ie)
@@ -175,28 +175,29 @@ class WeaviateDocumentStore(BaseDocumentStore):
         """
         index = self._sanitize_index_name(index) or self.index
 
-        if self.custom_schema:
-            schema = self.custom_schema
-        else:
-            schema = {
-                "classes": [
-                    {
-                        "class": index,
-                        "description": "Haystack index, it's a class in Weaviate",
-                        "invertedIndexConfig": {"cleanupIntervalSeconds": 60},
-                        "vectorizer": "none",
-                        "properties": [
-                            {"dataType": ["string"], "description": "Name Field", "name": self.name_field},
-                            {
-                                "dataType": ["text"],
-                                "description": "Document Content (e.g. the text)",
-                                "name": self.content_field,
-                            },
-                        ],
-                        "vectorIndexConfig": {"distance": self.similarity},
-                    }
-                ]
-            }
+        schema = self.custom_schema or {
+            "classes": [
+                {
+                    "class": index,
+                    "description": "Haystack index, it's a class in Weaviate",
+                    "invertedIndexConfig": {"cleanupIntervalSeconds": 60},
+                    "vectorizer": "none",
+                    "properties": [
+                        {
+                            "dataType": ["string"],
+                            "description": "Name Field",
+                            "name": self.name_field,
+                        },
+                        {
+                            "dataType": ["text"],
+                            "description": "Document Content (e.g. the text)",
+                            "name": self.content_field,
+                        },
+                    ],
+                    "vectorIndexConfig": {"distance": self.similarity},
+                }
+            ]
+        }
 
         if not self.weaviate_client.schema.contains(schema):
             self.weaviate_client.schema.create(schema)
@@ -307,17 +308,19 @@ class WeaviateDocumentStore(BaseDocumentStore):
             raise NotImplementedError("WeaviateDocumentStore does not support headers.")
 
         index = self._sanitize_index_name(index) or self.index
-        document = None
-
         id = self._sanitize_id(id=id, index=index)
         result = None
         try:
             result = self.weaviate_client.data_object.get_by_id(id, class_name=index, with_vector=True)
         except weaviate.exceptions.UnexpectedStatusCodeException as usce:
             logging.debug("Weaviate could not get the document requested: %s", usce)
-        if result:
-            document = self._convert_weaviate_result_to_document(result, return_embedding=True)
-        return document
+        return (
+            self._convert_weaviate_result_to_document(
+                result, return_embedding=True
+            )
+            if result
+            else None
+        )
 
     def get_documents_by_id(
         self,
@@ -435,7 +438,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
         """
         Find the properties in the document that don't exist in the existing schema.
         """
-        return [item for item in doc.keys() if item not in cur_props]
+        return [item for item in doc if item not in cur_props]
 
     def write_documents(
         self,
@@ -516,9 +519,9 @@ class WeaviateDocumentStore(BaseDocumentStore):
 
                     # In order to have a flat structure in elastic + similar behaviour to the other DocumentStores,
                     # we "unnest" all value within "meta"
-                    if "meta" in _doc.keys():
+                    if "meta" in _doc:
                         for k, v in _doc["meta"].items():
-                            if k in _doc.keys():
+                            if k in _doc:
                                 raise ValueError(
                                     f'"meta" info contains duplicate key "{k}" with the top-level document structure'
                                 )
@@ -534,10 +537,9 @@ class WeaviateDocumentStore(BaseDocumentStore):
                     # Converting content to JSON-string as Weaviate doesn't allow other nested list for tables
                     _doc["content"] = json.dumps(_doc["content"])
 
-                    # Check if additional properties are in the document, if so,
-                    # append the schema with all the additional properties
-                    missing_props = self._check_document(current_properties, _doc)
-                    if missing_props:
+                    if missing_props := self._check_document(
+                        current_properties, _doc
+                    ):
                         for property in missing_props:
                             self._update_schema(property, _doc[property], index)
                             current_properties.append(property)
@@ -577,9 +579,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
 
         current_properties = self._get_current_properties(index)
 
-        # Check if the new metadata contains additional properties and append them to the schema
-        missing_props = self._check_document(current_properties, meta)
-        if missing_props:
+        if missing_props := self._check_document(current_properties, meta):
             for property in missing_props:
                 self._update_schema(property, meta[property], index)
                 current_properties.append(property)
@@ -618,19 +618,19 @@ class WeaviateDocumentStore(BaseDocumentStore):
             return 0
 
         index = self._sanitize_index_name(index) or self.index
-        doc_count = 0
         if filters:
             filter_dict = LogicalFilterClause.parse(filters).convert_to_weaviate()
             result = self.weaviate_client.query.aggregate(index).with_meta_count().with_where(filter_dict).do()
         else:
             result = self.weaviate_client.query.aggregate(index).with_meta_count().do()
 
-        if "data" in result:
-            if "Aggregate" in result.get("data"):
-                if result.get("data").get("Aggregate").get(index):
-                    doc_count = result.get("data").get("Aggregate").get(index)[0]["meta"]["count"]
-
-        return doc_count
+        return (
+            result.get("data").get("Aggregate").get(index)[0]["meta"]["count"]
+            if "data" in result
+            and "Aggregate" in result.get("data")
+            and result.get("data").get("Aggregate").get(index)
+            else 0
+        )
 
     def get_all_documents(
         self,
@@ -697,8 +697,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
         result = self.get_all_documents_generator(
             index=index, filters=filters, return_embedding=return_embedding, batch_size=batch_size
         )
-        documents = list(result)
-        return documents
+        return list(result)
 
     def _get_all_documents_in_index(
         self,
@@ -844,8 +843,9 @@ class WeaviateDocumentStore(BaseDocumentStore):
 
         results = self._get_all_documents_in_index(index=index, filters=filters, batch_size=batch_size)
         for result in results:
-            document = self._convert_weaviate_result_to_document(result, return_embedding=return_embedding)
-            yield document
+            yield self._convert_weaviate_result_to_document(
+                result, return_embedding=return_embedding
+            )
 
     def query(
         self,
@@ -1020,9 +1020,13 @@ class WeaviateDocumentStore(BaseDocumentStore):
             query_output = self.weaviate_client.query.raw(gql_query)
 
         results = []
-        if query_output and "data" in query_output and "Get" in query_output.get("data"):
-            if query_output.get("data").get("Get").get(index):
-                results = query_output.get("data").get("Get").get(index)
+        if (
+            query_output
+            and "data" in query_output
+            and "Get" in query_output.get("data")
+            and query_output.get("data").get("Get").get(index)
+        ):
+            results = query_output.get("data").get("Get").get(index)
 
         documents = []
         for result in results:
@@ -1154,9 +1158,13 @@ class WeaviateDocumentStore(BaseDocumentStore):
             )
 
         results = []
-        if query_output and "data" in query_output and "Get" in query_output.get("data"):
-            if query_output.get("data").get("Get").get(index):
-                results = query_output.get("data").get("Get").get(index)
+        if (
+            query_output
+            and "data" in query_output
+            and "Get" in query_output.get("data")
+            and query_output.get("data").get("Get").get(index)
+        ):
+            results = query_output.get("data").get("Get").get(index)
 
         documents = []
         for result in results:

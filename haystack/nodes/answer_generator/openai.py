@@ -89,10 +89,7 @@ class OpenAIAnswerGenerator(BaseGenerator):
         self.stop_words = stop_words
         self._tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
 
-        if "davinci" in self.model:
-            self.MAX_TOKENS_LIMIT = 4000
-        else:
-            self.MAX_TOKENS_LIMIT = 2048
+        self.MAX_TOKENS_LIMIT = 4000 if "davinci" in self.model else 2048
 
     @retry_with_exponential_backoff(backoff_in_seconds=10, max_retries=5)
     def predict(self, query: str, documents: List[Document], top_k: Optional[int] = None):
@@ -158,8 +155,7 @@ class OpenAIAnswerGenerator(BaseGenerator):
 
         generated_answers = [ans["text"] for ans in res["choices"]]
         answers = self._create_answers(generated_answers, input_docs)
-        result = {"query": query, "answers": answers}
-        return result
+        return {"query": query, "answers": answers}
 
     def _build_prompt(self, query: str, documents: List[Document]) -> Tuple[str, List[Document]]:
         """
@@ -189,7 +185,7 @@ class OpenAIAnswerGenerator(BaseGenerator):
             else:
                 skipped_docs += 1
 
-        if len(input_docs) == 0:
+        if not input_docs:
             logger.warning(
                 f"Skipping all of the provided Documents, as none of them fits the maximum token limit of "
                 f"{self.MAX_TOKENS_LIMIT}. The generated answers will therefore not be conditioned on any context."

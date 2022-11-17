@@ -151,7 +151,7 @@ class PseudoLabelGenerator(BaseComponent):
         if self.question_document_pairs:
             question_doc_pairs = self.question_document_pairs
         else:
-            batch_size = batch_size if batch_size else self.batch_size
+            batch_size = batch_size or self.batch_size
             questions: List[List[str]] = self.question_generator.generate_batch(  # type: ignore
                 [d.content for d in documents], batch_size=batch_size
             )
@@ -175,7 +175,7 @@ class PseudoLabelGenerator(BaseComponent):
                 and negative document.
         """
         question_pos_doc_neg_doc: List[Dict[str, str]] = []
-        batch_size = batch_size if batch_size else self.batch_size
+        batch_size = batch_size or self.batch_size
 
         for i in tqdm(
             range(0, len(question_doc_pairs), batch_size), disable=not self.progress_bar, desc="Mine negatives"
@@ -224,13 +224,18 @@ class PseudoLabelGenerator(BaseComponent):
             - score: The score margin
         """
         examples: List[Dict] = []
-        batch_size = batch_size if batch_size else self.batch_size
+        batch_size = batch_size or self.batch_size
         for i in tqdm(range(0, len(mined_negatives), batch_size), disable=not self.progress_bar, desc="Score margin"):
             negatives_batch = mined_negatives[i : i + batch_size]
             pb = []
             for item in negatives_batch:
-                pb.append([item["question"], item["pos_doc"]])
-                pb.append([item["question"], item["neg_doc"]])
+                pb.extend(
+                    (
+                        [item["question"], item["pos_doc"]],
+                        [item["question"], item["neg_doc"]],
+                    )
+                )
+
             scores = self.cross_encoder.predict(pb)
             for idx, item in enumerate(negatives_batch):
                 scores_idx = idx * 2
@@ -263,7 +268,7 @@ class PseudoLabelGenerator(BaseComponent):
             - score: The margin between the score for question-positive document pair and the score for question-negative document pair.
         """
         # see https://github.com/UKPLab/gpl for more information about GPL algorithm
-        batch_size = batch_size if batch_size else self.batch_size
+        batch_size = batch_size or self.batch_size
 
         # step 1: generate questions
         question_doc_pairs = self.generate_questions(documents=documents, batch_size=batch_size)

@@ -358,9 +358,7 @@ class Inferencer:
             dataset=dataset, sampler=SequentialSampler(dataset), batch_size=self.batch_size, tensor_names=tensor_names
         )  # type ignore
         preds_all = []
-        for i, batch in enumerate(
-            tqdm(data_loader, desc=f"Inferencing Samples", unit=" Batches", disable=self.disable_tqdm)
-        ):
+        for i, batch in enumerate(tqdm(data_loader, desc="Inferencing Samples", unit=" Batches", disable=self.disable_tqdm)):
             batch = {key: batch[key].to(self.devices[0]) for key in batch}
             batch_samples = samples[i * self.batch_size : (i + 1) * self.batch_size]
 
@@ -395,10 +393,7 @@ class Inferencer:
         # TODO so that preds of the right shape are passed in to formatted_preds
         unaggregated_preds_all = []
 
-        for i, batch in enumerate(
-            tqdm(data_loader, desc=f"Inferencing Samples", unit=" Batches", disable=self.disable_tqdm)
-        ):
-
+        for batch in tqdm(data_loader, desc="Inferencing Samples", unit=" Batches", disable=self.disable_tqdm):
             batch = {key: batch[key].to(self.devices[0]) for key in batch}
 
             # get logits
@@ -425,12 +420,11 @@ class Inferencer:
 
         # can assume that we have only complete docs i.e. all the samples of one doc are in the current chunk
         logits = [None]
-        preds_all = self.model.formatted_preds(
+        return self.model.formatted_preds(
             logits=logits,  # For QA we collected preds per batch and do not want to pass logits
             preds=unaggregated_preds_all,
             baskets=baskets,
-        )  # type ignore
-        return preds_all
+        )
 
     def extract_vectors(
         self, dicts: List[Dict], extraction_strategy: Optional[str] = "cls_token", extraction_layer: Optional[int] = -1

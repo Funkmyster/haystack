@@ -9,7 +9,7 @@ from requests.auth import HTTPBasicAuth
 
 try:
     from SPARQLWrapper import SPARQLWrapper, JSON
-except (ImportError, ModuleNotFoundError) as ie:
+except ImportError as ie:
     from haystack.utils.import_utils import _optional_component_not_installed
 
     _optional_component_not_installed(__name__, "graphdb", ie)
@@ -105,8 +105,7 @@ class GraphDBKnowledgeGraph(BaseKnowledgeGraph):
         :return: all triples stored in the index
         """
         sparql_query = "SELECT * WHERE { ?s ?p ?o. }"
-        results = self.query(sparql_query=sparql_query, index=index, headers=headers)
-        return results
+        return self.query(sparql_query=sparql_query, index=index, headers=headers)
 
     def get_all_subjects(self, index: Optional[str] = None, headers: Optional[Dict[str, str]] = None):
         """
@@ -117,8 +116,7 @@ class GraphDBKnowledgeGraph(BaseKnowledgeGraph):
         :return: all subjects stored in the index
         """
         sparql_query = "SELECT ?s WHERE { ?s ?p ?o. }"
-        results = self.query(sparql_query=sparql_query, index=index, headers=headers)
-        return results
+        return self.query(sparql_query=sparql_query, index=index, headers=headers)
 
     def get_all_predicates(self, index: Optional[str] = None, headers: Optional[Dict[str, str]] = None):
         """
@@ -129,8 +127,7 @@ class GraphDBKnowledgeGraph(BaseKnowledgeGraph):
         :return: all predicates stored in the index
         """
         sparql_query = "SELECT ?p WHERE { ?s ?p ?o. }"
-        results = self.query(sparql_query=sparql_query, index=index, headers=headers)
-        return results
+        return self.query(sparql_query=sparql_query, index=index, headers=headers)
 
     def _create_document_field_map(self) -> Dict:
         """
@@ -147,8 +144,7 @@ class GraphDBKnowledgeGraph(BaseKnowledgeGraph):
         :return: all objects stored in the index
         """
         sparql_query = "SELECT ?o WHERE { ?s ?p ?o. }"
-        results = self.query(sparql_query=sparql_query, index=index, headers=headers)
-        return results
+        return self.query(sparql_query=sparql_query, index=index, headers=headers)
 
     def query(self, sparql_query: str, index: Optional[str] = None, headers: Optional[Dict[str, str]] = None):
         """
